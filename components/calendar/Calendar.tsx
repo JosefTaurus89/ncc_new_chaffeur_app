@@ -1,9 +1,11 @@
+
 import React, { useMemo, useState } from 'react';
-import { Service, FilterCriteria, SavedFilter, User, Supplier, ServiceType, ServiceStatus } from '../../types';
+import { Service, FilterCriteria, SavedFilter, User, Supplier, ServiceType, ServiceStatus, AppSettings, DriverLeave } from '../../types';
 import { useCalendar, CalendarView } from '../../hooks/useCalendar';
 import { MonthView } from './MonthView';
 import { WeekView } from './WeekView';
 import { DayView } from './DayView';
+import { useTranslation } from '../../hooks/useTranslation';
 
 interface CalendarProps {
   services: Service[];
@@ -14,6 +16,10 @@ interface CalendarProps {
   savedFilters: SavedFilter[];
   onSaveFilter: (filter: SavedFilter) => void;
   onDeleteFilter: (filterId: string) => void;
+  settings: AppSettings;
+  driverLeaves?: DriverLeave[];
+  userRole: 'ADMIN' | 'DRIVER' | 'PARTNER';
+  onUpdateService: (service: Service) => void;
 }
 
 const FilterCheckbox: React.FC<{id: string, label: string, isChecked: boolean, onChange: () => void}> = ({id, label, isChecked, onChange}) => (
@@ -28,9 +34,14 @@ export const Calendar: React.FC<CalendarProps> = ({
     onSelectService,
     onTimeSlotClick,
     drivers,
+    suppliers,
     savedFilters,
     onSaveFilter,
-    onDeleteFilter
+    onDeleteFilter,
+    settings,
+    driverLeaves = [],
+    userRole,
+    onUpdateService
 }) => {
   const { 
     currentDate,
@@ -52,17 +63,49 @@ export const Calendar: React.FC<CalendarProps> = ({
   const [newFilterName, setNewFilterName] = useState('');
   const [selectedSavedFilterId, setSelectedSavedFilterId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [zoomLevel, setZoomLevel] = useState(3); // Zoom level from 1 (zoomed out) to 5 (zoomed in)
-
+  const [zoomLevel, setZoomLevel] = useState(settings.compactMode ? 2 : 3); 
+  const { t } = useTranslation(settings.language);
 
   const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const isAdmin = userRole === 'ADMIN';
 
   const activeFilterCount = useMemo(() => {
     return Object.values(activeFilters).reduce((count, arr) => count + (arr?.length || 0), 0);
   }, [activeFilters]);
   
+  // Inject driver leaves as pseudo-services
+  const servicesWithLeaves = useMemo(() => {
+    const leavesAsServices = driverLeaves.map(leave => {
+        const driver = drivers.find(d => d.id === leave.driverId);
+        // Create an "All Day" event structure
+        const start = new Date(leave.date);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(leave.date);
+        end.setHours(23, 59, 59, 999);
+
+        return {
+            id: `leave-${leave.id}`,
+            title: `🚫 ${driver?.name || 'Driver'}`, // Explicit icon for unavailability
+            clientName: 'OFF / ON LEAVE',
+            pickupAddress: '',
+            dropoffAddress: '',
+            startTime: start,
+            endTime: end,
+            status: ServiceStatus.CONFIRMED,
+            serviceType: ServiceType.CUSTOM, // Just a placeholder type
+            createdById: 'system',
+            color: 'Black', // Explicit black styling
+            driverId: leave.driverId,
+            // Flag to identify it's not a real service
+            isLeave: true
+        } as any as Service; 
+    });
+
+    return [...services, ...leavesAsServices];
+  }, [services, driverLeaves, drivers]);
+
   const filteredServices = useMemo(() => {
-    const searchFiltered = services.filter(service => {
+    const searchFiltered = servicesWithLeaves.filter(service => {
         if (!searchQuery) return true;
         const query = searchQuery.toLowerCase();
         return (
@@ -78,12 +121,20 @@ export const Calendar: React.FC<CalendarProps> = ({
     }
     return searchFiltered.filter(service => {
         const { serviceType, status, driverId } = activeFilters;
+        // Allow Leaves to bypass service type/status filters unless filtered by driver
+        // If filtering by driver, only show leaves for that driver
+        if ((service as any).isLeave) {
+             if (driverId?.length && (!service.driverId || !driverId.includes(service.driverId))) return false;
+             return true;
+        }
+
         if (serviceType?.length && !serviceType.includes(service.serviceType)) return false;
+        // Although status filter UI is removed, we keep logic just in case saved filters use it
         if (status?.length && !status.includes(service.status)) return false;
         if (driverId?.length && (!service.driverId || !driverId.includes(service.driverId))) return false;
         return true;
       });
-  }, [services, activeFilters, searchQuery]);
+  }, [servicesWithLeaves, activeFilters, searchQuery]);
 
   const handleFilterChange = (category: keyof FilterCriteria, value: string) => {
     setActiveFilters(prev => {
@@ -156,6 +207,39 @@ export const Calendar: React.FC<CalendarProps> = ({
   const handleDaySelect = (date: Date) => {
     setSelectedDate(date);
   };
+  
+  const handleServiceClick = (service: Service) => {
+      if ((service as any).isLeave) {
+          return;
+      }
+      onSelectService(service);
+  }
+
+  const handleMoveService = (serviceId: string, newDate: Date) => {
+      const service = services.find(s => s.id === serviceId);
+      if (service && isAdmin) {
+          const originalStart = new Date(service.startTime);
+          let newStart = new Date(newDate);
+          
+          // If dropped on Month View (which passes 00:00:00), preserve original time
+          if (newStart.getHours() === 0 && newStart.getMinutes() === 0 && view === 'month') {
+              newStart.setHours(originalStart.getHours(), originalStart.getMinutes());
+          }
+          
+          // Calculate new end time to preserve duration
+          const duration = service.endTime 
+             ? service.endTime.getTime() - originalStart.getTime() 
+             : 60 * 60 * 1000; // default 1h
+          
+          const newEnd = new Date(newStart.getTime() + duration);
+          
+          onUpdateService({
+              ...service,
+              startTime: newStart,
+              endTime: newEnd
+          });
+      }
+  };
 
 
   const handleZoomIn = () => setZoomLevel(z => Math.min(z + 1, 5));
@@ -176,7 +260,7 @@ export const Calendar: React.FC<CalendarProps> = ({
       <div className="flex items-center justify-between p-2 border-b border-slate-200 dark:border-slate-700 flex-wrap gap-2">
         <div className="flex items-center">
           <button onClick={goToToday} className="px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-            Today
+            {t('today')}
           </button>
           <div className="flex items-center ml-2">
             <button onClick={goToPrevious} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
@@ -197,14 +281,32 @@ export const Calendar: React.FC<CalendarProps> = ({
                 </div>
                 <input
                     type="text"
-                    placeholder="Search client, title, address..."
+                    placeholder={t('search_placeholder')}
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg leading-5 bg-white dark:bg-slate-800 placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:placeholder-slate-400 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                    className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg leading-5 bg-slate-50 text-slate-900 dark:bg-slate-800 dark:text-slate-100 placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:placeholder-slate-400 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 />
             </div>
         </div>
         <div className="flex items-center space-x-2">
+            {/* Quick Driver Filter */}
+            <select
+                className="block w-40 pl-3 pr-8 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 text-slate-900 dark:bg-slate-800 dark:text-slate-200 focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                value={activeFilters.driverId?.[0] || ''}
+                onChange={(e) => {
+                    const val = e.target.value;
+                    setActiveFilters(prev => {
+                        const newFilters = { ...prev };
+                        if (val) newFilters.driverId = [val];
+                        else delete newFilters.driverId;
+                        return newFilters;
+                    });
+                }}
+            >
+                <option value="">{t('all_drivers')}</option>
+                {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+
             <div className="flex items-center border border-slate-300 dark:border-slate-600 rounded-md p-0.5 space-x-1">
                 <button onClick={handleZoomOut} disabled={zoomLevel === 1} className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed">
                      <svg className="w-5 h-5 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"></path></svg>
@@ -217,8 +319,8 @@ export const Calendar: React.FC<CalendarProps> = ({
                 onClick={() => setShowFilters(prev => !prev)}
                 className={`relative flex items-center px-3 py-2 text-sm font-semibold border rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors ${showFilters ? 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
                 >
-                <svg className="w-5 h-5 mr-2 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L12 14.414V19a1 1 0 01-1.447.894L7 17v-2.586L3.293 6.707A1 1 0 013 6V4z"></path></svg>
-                Filters
+                <svg className="w-5 h-5 mr-2 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 01 1v2a1 1 0 01-.293.707L12 14.414V19a1 1 0 01-1.447.894L7 17v-2.586L3.293 6.707A1 1 0 013 6V4z"></path></svg>
+                {t('filters')}
                 {activeFilterCount > 0 && (
                     <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary-600 text-white text-xs font-semibold">
                     {activeFilterCount}
@@ -226,9 +328,9 @@ export const Calendar: React.FC<CalendarProps> = ({
                 )}
             </button>
           <div className="flex items-center border border-slate-300 dark:border-slate-600 rounded-lg p-1 space-x-1">
-            <ViewSwitcherButton buttonView="month" text="Month" />
-            <ViewSwitcherButton buttonView="week" text="Week" />
-            <ViewSwitcherButton buttonView="day" text="Day" />
+            <ViewSwitcherButton buttonView="month" text={t('month')} />
+            <ViewSwitcherButton buttonView="week" text={t('week')} />
+            <ViewSwitcherButton buttonView="day" text={t('day')} />
           </div>
         </div>
       </div>
@@ -237,27 +339,25 @@ export const Calendar: React.FC<CalendarProps> = ({
         <div className="p-4 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 animate-fade-in-down">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Filter Services</h3>
-                <button onClick={() => setActiveFilters({})} className="text-sm font-medium text-primary-600 hover:underline">Clear All Filters</button>
+                <button onClick={() => setActiveFilters({})} className="text-sm font-medium text-primary-600 hover:underline">{t('clear_filters')}</button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    <h4 className="font-semibold mb-2 text-slate-600 dark:text-slate-300">By Service Type</h4>
+                    <h4 className="font-semibold mb-2 text-slate-600 dark:text-slate-300">{t('by_service_type')}</h4>
                     <div className="space-y-1 max-h-32 overflow-y-auto">
                         {Object.values(ServiceType).map(type => (
-                            <FilterCheckbox key={type} id={`type-${type}`} label={type.replace(/_/g, ' ')} isChecked={activeFilters.serviceType?.includes(type) || false} onChange={() => handleFilterChange('serviceType', type)} />
+                            <FilterCheckbox 
+                                key={type} 
+                                id={`type-${type}`} 
+                                label={t(`type_${type}` as any) || type.replace(/_/g, ' ')} 
+                                isChecked={activeFilters.serviceType?.includes(type) || false} 
+                                onChange={() => handleFilterChange('serviceType', type)} 
+                            />
                         ))}
                     </div>
                 </div>
                 <div>
-                    <h4 className="font-semibold mb-2 text-slate-600 dark:text-slate-300">By Status</h4>
-                     <div className="space-y-1 max-h-32 overflow-y-auto">
-                        {Object.values(ServiceStatus).map(status => (
-                            <FilterCheckbox key={status} id={`status-${status}`} label={status.replace(/_/g, ' ')} isChecked={activeFilters.status?.includes(status) || false} onChange={() => handleFilterChange('status', status)} />
-                        ))}
-                    </div>
-                </div>
-                <div>
-                    <h4 className="font-semibold mb-2 text-slate-600 dark:text-slate-300">By Driver</h4>
+                    <h4 className="font-semibold mb-2 text-slate-600 dark:text-slate-300">{t('by_driver')}</h4>
                      <div className="space-y-1 max-h-32 overflow-y-auto">
                         {drivers.map(driver => (
                             <FilterCheckbox key={driver.id} id={`driver-${driver.id}`} label={driver.name} isChecked={activeFilters.driverId?.includes(driver.id) || false} onChange={() => handleFilterChange('driverId', driver.id)} />
@@ -266,15 +366,19 @@ export const Calendar: React.FC<CalendarProps> = ({
                 </div>
             </div>
             <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
-                 <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">Saved Filters</h3>
+                 <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">{t('saved_filters')}</h3>
                  <div className="flex items-center gap-2 flex-wrap">
-                    <select value={selectedSavedFilterId} onChange={handleLoadFilter} className="border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg shadow-sm text-sm focus:ring-primary-500 focus:border-primary-500">
-                        <option value="">Load a filter...</option>
+                    <select value={selectedSavedFilterId} onChange={handleLoadFilter} className="bg-slate-50 text-slate-900 border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg shadow-sm text-sm focus:ring-primary-500 focus:border-primary-500">
+                        <option value="">{t('load_filter')}</option>
                         {savedFilters.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
-                    <input type="text" value={newFilterName} onChange={e => setNewFilterName(e.target.value)} placeholder="New filter name" className="border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg shadow-sm text-sm focus:ring-primary-500 focus:border-primary-500" />
-                    <button onClick={handleSaveFilter} className="px-3 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700">Save Current</button>
-                    <button onClick={handleDeleteFilter} disabled={!selectedSavedFilterId} className="px-3 py-2 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-red-900/50 dark:text-red-300 dark:hover:bg-red-900">Delete Selected</button>
+                    {isAdmin && (
+                        <>
+                            <input type="text" value={newFilterName} onChange={e => setNewFilterName(e.target.value)} placeholder={t('new_filter_name')} className="bg-slate-50 text-slate-900 border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg shadow-sm text-sm focus:ring-primary-500 focus:border-primary-500" />
+                            <button onClick={handleSaveFilter} className="px-3 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700">{t('save_current')}</button>
+                            <button onClick={handleDeleteFilter} disabled={!selectedSavedFilterId} className="px-3 py-2 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-red-900/50 dark:text-red-300 dark:hover:bg-red-900">{t('delete_selected')}</button>
+                        </>
+                    )}
                  </div>
             </div>
         </div>
@@ -293,12 +397,14 @@ export const Calendar: React.FC<CalendarProps> = ({
                 services={filteredServices} 
                 currentMonth={currentDate.getMonth()}
                 selectedDate={selectedDate}
-                onSelectService={onSelectService} 
+                onSelectService={handleServiceClick} 
                 onDaySelect={handleDaySelect}
                 onDayDoubleClick={handleDayDoubleClick}
                 zoomLevel={zoomLevel}
                 drivers={drivers}
-                onTimeSlotClick={onTimeSlotClick}
+                onTimeSlotClick={isAdmin ? onTimeSlotClick : () => {}}
+                onMoveService={handleMoveService}
+                settings={settings}
                 />
             </div>
         </>
@@ -309,12 +415,14 @@ export const Calendar: React.FC<CalendarProps> = ({
                 days={weekDays}
                 services={filteredServices}
                 selectedDate={selectedDate}
-                onSelectService={onSelectService}
+                onSelectService={handleServiceClick}
                 onDaySelect={handleDaySelect}
                 onDayDoubleClick={handleDayDoubleClick}
-                onTimeSlotClick={onTimeSlotClick}
+                onTimeSlotClick={isAdmin ? onTimeSlotClick : () => {}}
+                onMoveService={handleMoveService}
                 zoomLevel={zoomLevel}
                 drivers={drivers}
+                settings={settings}
             />
         </div>
       )}
@@ -323,10 +431,12 @@ export const Calendar: React.FC<CalendarProps> = ({
             <DayView
                 day={currentDate}
                 services={filteredServices}
-                onSelectService={onSelectService}
-                onTimeSlotClick={onTimeSlotClick}
+                onSelectService={handleServiceClick}
+                onTimeSlotClick={isAdmin ? onTimeSlotClick : () => {}}
+                onMoveService={handleMoveService}
                 drivers={drivers}
                 zoomLevel={zoomLevel}
+                settings={settings}
             />
         </div>
       )}

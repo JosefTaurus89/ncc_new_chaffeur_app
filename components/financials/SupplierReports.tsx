@@ -56,7 +56,7 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
     }> = {};
 
     allHistoryServices.forEach(s => {
-        // Use local time for grouping to match detailed view filtering
+        // Use local time for grouping
         const sDate = new Date(s.startTime);
         const monthKey = `${sDate.getFullYear()}-${String(sDate.getMonth() + 1).padStart(2, '0')}`;
         
@@ -142,8 +142,6 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
         .filter(s => s.clientPaymentStatus !== PaymentStatus.PAID)
         .reduce((sum, s) => sum + Math.max(0, (s.clientPrice || 0) - (s.deposit || 0)), 0);
 
-    // Final Net Balance Calculation
-    // Formula: (Agency Jobs Price) - (Supplier Costs - Supplier Held Cash)
     const netBalance = totalReceivable - (totalPayable - totalHeldBySupplier);
 
     return { 
@@ -197,7 +195,6 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
              const isPrepaid = s.paymentMethod === 'Prepaid' || s.paymentMethod === 'Future Invoice';
              const balance = isPrepaid ? 0 : Math.max(0, (s.clientPrice || 0) - (s.deposit || 0));
              held = balance + (s.extrasAmount || 0);
-             // Net Settlement for this row contribution
              net = cost - held;
         } else {
             // Agency Job
@@ -219,7 +216,7 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
         ]
     });
 
-    // Add Calculation Footer Rows
+     // Add Calculation Footer Rows
     // Row 1: Totals
     rows.push([
         "", "", "", `<b>${t('totals_upper')}</b>`, 
@@ -286,10 +283,10 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                 const isPrepaid = s.paymentMethod === 'Prepaid' || s.paymentMethod === 'Future Invoice';
                 const balance = isPrepaid ? 0 : Math.max(0, (s.clientPrice || 0) - (s.deposit || 0));
                 held = balance + (s.extrasAmount || 0);
-                net = cost - held; // Positive = Agency owes Supplier
+                net = cost - held;
            } else {
                 receivable = s.clientPrice || 0;
-                net = -receivable; // Negative = Supplier owes Agency
+                net = -receivable;
            }
 
           return [
@@ -356,7 +353,7 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                 {/* Yearly Summary Table */}
                 <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                     <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{t('yearly_performance')}</h3>
+                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Yearly Performance Overview</h3>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
@@ -410,7 +407,7 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                 <div className="flex flex-col md:flex-row justify-between items-end border-b border-slate-200 dark:border-slate-700 pb-4 mt-8">
                     <div>
                          <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                            {t('detailed_report')}: {new Date(selectedMonth + '-01').toLocaleString(settings.language === 'it' ? 'it-IT' : (settings.language === 'es' ? 'es-ES' : (settings.language === 'fr' ? 'fr-FR' : 'en-US')), { month: 'long', year: 'numeric' })}
+                            Detailed Report: {new Date(selectedMonth + '-01').toLocaleString(settings.language === 'it' ? 'it-IT' : (settings.language === 'es' ? 'es-ES' : (settings.language === 'fr' ? 'fr-FR' : 'en-US')), { month: 'long', year: 'numeric' })}
                         </h3>
                         <p className="text-sm text-slate-500 mt-1">Detailed list of services and financial status.</p>
                     </div>
@@ -440,12 +437,6 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                         subtitle={`${t('outstanding_balance')}: $${supplierData.outstandingPayable.toFixed(2)}`}
                         color="text-red-600 dark:text-red-400"
                     />
-                     <MetricCard 
-                        title={t('supplier_holds_cash')}
-                        value={`$${supplierData.totalHeldBySupplier.toFixed(2)}`} 
-                        subtitle="Reduces net payment"
-                        color="text-orange-600 dark:text-orange-400"
-                    />
                     <MetricCard 
                         title={t('amount_receivable')} 
                         value={`$${supplierData.totalReceivable.toFixed(2)}`} 
@@ -455,8 +446,13 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                     <MetricCard 
                         title={t('net_balance')} 
                         value={`${supplierData.netBalance >= 0 ? '+' : ''}$${supplierData.netBalance.toFixed(2)}`} 
-                        subtitle={supplierData.netBalance >= 0 ? t('they_pay_you') : t('you_pay_them')}
+                        subtitle={supplierData.netBalance >= 0 ? "They owe you" : "You owe them"}
                         color={supplierData.netBalance >= 0 ? "text-blue-600 dark:text-blue-400" : "text-orange-600 dark:text-orange-400"}
+                    />
+                    <MetricCard 
+                        title={t('total_services')}
+                        value={supplierData.totalServices.toString()} 
+                        subtitle="Combined In/Out"
                     />
                 </div>
 
@@ -481,7 +477,6 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                                 <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{t('service')}</th>
                                 <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{t('type')}</th>
                                 <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{t('payable_cost')}</th>
-                                <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{t('supplier_holds')}</th>
                                 <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{t('receivable_price')}</th>
                                 <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{t('status')}</th>
                             </tr>
@@ -489,17 +484,9 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                             {supplierData.displayServices.map(service => {
                                 const isOutsourced = service.reportType === 'OUTSOURCED';
-                                // Calculate held amount for display per row
-                                let held = 0;
-                                if (isOutsourced) {
-                                     const isPrepaid = service.paymentMethod === 'Prepaid' || service.paymentMethod === 'Future Invoice';
-                                     const balance = isPrepaid ? 0 : Math.max(0, (service.clientPrice || 0) - (service.deposit || 0));
-                                     held = balance + (service.extrasAmount || 0);
-                                }
-
                                 return (
                                 <tr key={service.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{new Date(service.startTime).toLocaleDateString(settings.language === 'it' ? 'it-IT' : (settings.language === 'es' ? 'es-ES' : (settings.language === 'fr' ? 'fr-FR' : 'en-US')))}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{new Date(service.startTime).toLocaleDateString(settings.language === 'it' ? 'it-IT' : 'en-US')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-slate-100">{service.title}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${isOutsourced ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300'}`}>
@@ -508,9 +495,6 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-red-600 dark:text-red-400 font-medium">
                                         {isOutsourced ? `$${(service.supplierCost || 0).toFixed(2)}` : '-'}
-                                    </td>
-                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-orange-600 dark:text-orange-400 font-medium">
-                                        {isOutsourced ? `$${held.toFixed(2)}` : '-'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-green-600 dark:text-green-400 font-medium">
                                         {isOutsourced ? '-' : `$${(service.clientPrice || 0).toFixed(2)}`}
@@ -522,7 +506,7 @@ export const SupplierReports: React.FC<SupplierReportsProps> = ({ suppliers, ser
                             )})}
                             {supplierData.displayServices.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="text-center py-8 text-slate-500 dark:text-slate-400">No services found for this period.</td>
+                                    <td colSpan={6} className="text-center py-8 text-slate-500 dark:text-slate-400">No services found for this period.</td>
                                 </tr>
                             )}
                         </tbody>

@@ -1,5 +1,5 @@
 {
-  "name": "NCC: New Chaffeur Calendar",
+  "name": "New ChAIffeur Calendar",
   "description": "A comprehensive application for managing transfers and tours, inspired by Google Calendar and enhanced with AI to streamline reservation management. Features multiple calendar views and AI-powered data extraction from reservation details.",
   "requestFramePermissions": []
 }

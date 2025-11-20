@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { getFinancialInsights } from '../../services/geminiService';
 
@@ -78,7 +79,7 @@ export const AIFinancialAssistant: React.FC<AIFinancialAssistantProps> = ({ fina
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="e.g., How does our revenue compare to our costs?"
-                    className="w-full border-slate-300 rounded-lg shadow-sm text-sm p-2 focus:ring-blue-500 focus:border-blue-500 flex-1 transition-colors"
+                    className="w-full bg-slate-50 text-slate-900 border-slate-300 rounded-lg shadow-sm text-sm p-2 focus:ring-blue-500 focus:border-blue-500 flex-1 transition-colors"
                     rows={2}
                     disabled={isLoading}
                 />

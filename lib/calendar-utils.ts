@@ -1,3 +1,4 @@
+
 export const getMonthDays = (date: Date): Date[][] => {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -25,11 +26,11 @@ export const getMonthDays = (date: Date): Date[][] => {
   return weeks;
 };
 
-export const formatTime = (date: Date): string => {
+export const formatTime = (date: Date, format: '12h' | '24h' = '12h'): string => {
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
-    hour12: true,
+    hour12: format === '12h',
   }).toLowerCase().replace(' ', '');
 };
 

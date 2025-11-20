@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { extractReservationDetails } from '../../services/geminiService';
 import { ExtractedReservation } from '../../types';
@@ -47,7 +48,7 @@ export const ReservationExtractor: React.FC<ReservationExtractorProps> = ({ onEx
         value={inputText}
         onChange={(e) => setInputText(e.target.value)}
         placeholder="e.g., Confirmation for John Doe, flight BA212 arriving at JFK on Oct 28 at 3:15 PM, going to The Plaza Hotel..."
-        className="w-full flex-1 border-slate-300 rounded-lg shadow-sm text-sm p-3 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        className="w-full flex-1 bg-slate-50 text-slate-900 border-slate-300 rounded-lg shadow-sm text-sm p-3 focus:ring-blue-500 focus:border-blue-500 transition-colors"
         rows={10}
         disabled={isLoading}
       />
